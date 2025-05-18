@@ -182,10 +182,18 @@ class Prune
   private function getProperty($object, $definitionHandle, $definitionValue, $specials = [])
   {
     if ($definitionValue == false) return null;
+
     if (!is_object($object)) return null; // More graceful handling than returning error array
-    
     $fieldValue = $this->getFieldValue($object, $definitionHandle, $specials);
-    
+
+    // Handle Laravel Collection or Craft ElementCollection
+    if (
+      (is_object($fieldValue) && 
+        (is_a($fieldValue, 'Illuminate\\Support\\Collection') || is_a($fieldValue, 'craft\\elements\\ElementCollection')))
+    ) {
+      $fieldValue = $fieldValue->all(); // Convert to array
+    }
+
     if (is_scalar($fieldValue) || is_null($fieldValue)) {
       return $fieldValue;
     }
@@ -199,7 +207,6 @@ class Prune
           break;
         }
       }
-      
       if ($isArrayOfElements) {
         // Process array of Elements (e.g. Matrix blocks)
         return $this->processElementArray($fieldValue, $definitionValue);
@@ -251,8 +258,15 @@ class Prune
    * @param mixed $definitionValue Definition determining what to keep
    * @return array Processed array of elements
    */
-  private function processElementArray(array $elements, $definitionValue): array
+  private function processElementArray($elements, $definitionValue): array
   {
+    // Accept arrays or collections
+    if (
+      is_object($elements) && 
+      (is_a($elements, 'Illuminate\\Support\\Collection') || is_a($elements, 'craft\\elements\\ElementCollection'))
+    ) {
+      $elements = $elements->all();
+    }
     $result = [];
     
     // Check if we're dealing with Matrix block types (keys with _ prefix)
