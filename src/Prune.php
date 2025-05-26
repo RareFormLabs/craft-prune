@@ -2,9 +2,12 @@
 
 namespace rareform;
 
+use Craft;
 use craft\base\Element;
 use craft\elements\db\ElementQuery;
 use craft\htmlfield\HtmlFieldData;
+
+use yii\caching\TagDependency;
 
 /**
  * Helper class for pruning data according to a definition
@@ -142,11 +145,23 @@ class Prune
   {
     // Apply any special directives to the query before fetching results
     $elementQuery = $this->applySpecials($elementQuery, $specials);
-    
+
+    $cacheKey = md5(serialize([$elementQuery, $pruneDefinition]));
+
+    $cachedResult = Craft::$app->getCache()->get($cacheKey) ?: null;
+    if ($cachedResult) {
+      return $cachedResult;
+    }
+
     $result = [];
     foreach ($elementQuery->all() as $element) {
       $result[] = $this->processPruneDefinition($element, $pruneDefinition);
     }
+
+    $dependency = new TagDependency();
+    $dependency->tags[] = 'pruneData';
+    Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
+
     return $result;
   }
 
