@@ -2,9 +2,12 @@
 
 namespace rareform;
 
+use Craft;
 use craft\base\Element;
 use craft\elements\db\ElementQuery;
 use craft\htmlfield\HtmlFieldData;
+
+use yii\caching\TagDependency;
 
 /**
  * Helper class for pruning data according to a definition
@@ -142,11 +145,23 @@ class Prune
   {
     // Apply any special directives to the query before fetching results
     $elementQuery = $this->applySpecials($elementQuery, $specials);
-    
+
+    $cacheKey = md5(serialize([$elementQuery, $pruneDefinition]));
+
+    $cachedResult = Craft::$app->getCache()->get($cacheKey) ?: null;
+    if ($cachedResult) {
+      return $cachedResult;
+    }
+
     $result = [];
     foreach ($elementQuery->all() as $element) {
       $result[] = $this->processPruneDefinition($element, $pruneDefinition);
     }
+
+    $dependency = new TagDependency();
+    $dependency->tags[] = 'pruneData';
+    Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
+
     return $result;
   }
 
@@ -157,18 +172,36 @@ class Prune
    * @param array $pruneDefinition Definition determining what to keep
    * @return array Processed data
    */
-  private function processPruneDefinition($object, $pruneDefinition): array
+  private function processPruneDefinition($object, $pruneDefinition, array &$relatedElementIds = []): array
   {
-    $result = [];
+        // Read from cache if possible
+        if ($object instanceof Element && isset($object->id)) {
+            $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
+            $cached = Craft::$app->getCache()->get($cacheKey);
+            if ($cached !== false) {
+                return $cached;
+            }
+        }
 
-    foreach ($pruneDefinition as $field => $details) {
-      // Extract specials from pruneDefinition
-      list($details, $specials) = $this->extractSpecials($details);
-      $result[$field] = $this->getProperty($object, $field, $details, $specials);
+        $result = [];
+        foreach ($pruneDefinition as $field => $details) {
+            // Extract specials from pruneDefinition
+            list($details, $specials) = $this->extractSpecials($details);
+            $result[$field] = $this->getProperty($object, $field, $details, $specials, $relatedElementIds);
+        }
+
+        // --- Caching result with TagDependency if $object is an Element ---
+        if ($object instanceof Element && isset($object->id)) {
+            $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
+            $elementIds = array_merge([$object->id], $relatedElementIds);
+            $tags = array_map(function($id) { return 'element::' . $id; }, array_unique($elementIds));
+            $dependency = new TagDependency(['tags' => $tags]);
+            Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
+        }
+        // ---------------------------------------------------------------
+
+        return $result;
     }
-    
-    return $result;
-  }
 
   /**
    * Gets a property from an object according to the prune definition
@@ -179,11 +212,11 @@ class Prune
    * @param array $specials Special directives
    * @return mixed Property value, possibly pruned
    */
-  private function getProperty($object, $definitionHandle, $definitionValue, $specials = [])
+  private function getProperty($object, $definitionHandle, $definitionValue, $specials = [], array &$relatedElementIds = [])
   {
     if ($definitionValue == false) return null;
 
-    if (!is_object($object)) return null; // More graceful handling than returning error array
+    if (!is_object($object)) return null;
     $fieldValue = $this->getFieldValue($object, $definitionHandle, $specials);
 
     // Handle Laravel Collection or Craft ElementCollection
@@ -191,7 +224,7 @@ class Prune
       (is_object($fieldValue) && 
         (is_a($fieldValue, 'Illuminate\\Support\\Collection') || is_a($fieldValue, 'craft\\elements\\ElementCollection')))
     ) {
-      $fieldValue = $fieldValue->all(); // Convert to array
+      $fieldValue = $fieldValue->all();
     }
 
     if (is_scalar($fieldValue) || is_null($fieldValue)) {
@@ -199,7 +232,6 @@ class Prune
     }
 
     if (is_array($fieldValue)) {
-      // Check if all array items are Elements
       $isArrayOfElements = !empty($fieldValue);
       foreach ($fieldValue as $item) {
         if (!($item instanceof Element)) {
@@ -208,25 +240,30 @@ class Prune
         }
       }
       if ($isArrayOfElements) {
-        // Process array of Elements (e.g. Matrix blocks)
+        // Add all element IDs to relatedElementIds
+        foreach ($fieldValue as $el) {
+          if ($el instanceof Element && isset($el->id)) {
+            $relatedElementIds[] = $el->id;
+          }
+        }
         return $this->processElementArray($fieldValue, $definitionValue);
       }
       return $fieldValue;
     }
 
     if ($fieldValue instanceof Element) {
+      if (isset($fieldValue->id)) {
+        $relatedElementIds[] = $fieldValue->id;
+      }
       return $this->pruneObject($fieldValue, $definitionValue);
     }
 
     if ($fieldValue instanceof ElementQuery) {
       $relatedElementObjectPruneDefinition = array();
-      
       if (is_array($definitionValue)) {
         if ($this->isAssociativeArray($definitionValue)) {
-          // If it's already associative, use as is
           $relatedElementObjectPruneDefinition = $definitionValue;
         } else {
-          // Convert non-associative array to associative
           foreach ($definitionValue as $nestedPropertyKey) {
             $relatedElementObjectPruneDefinition[$nestedPropertyKey] = true;
           }
@@ -234,7 +271,6 @@ class Prune
       } else {
         $relatedElementObjectPruneDefinition[$definitionValue] = true;
       }
-    
       return $this->pruneObject($fieldValue, $relatedElementObjectPruneDefinition);
     }
 
@@ -416,4 +452,20 @@ class Prune
     }
     return $methodCall;
   }
+
+    /**
+     * Recursively collect all Element IDs from a value (array/object)
+     * @param mixed $value
+     * @param array &$elementIds
+     */
+    private function collectElementIdsRecursive($value, array &$elementIds)
+    {
+        if ($value instanceof Element && isset($value->id)) {
+            $elementIds[] = $value->id;
+        } elseif (is_array($value)) {
+            foreach ($value as $item) {
+                $this->collectElementIdsRecursive($item, $elementIds);
+            }
+        }
+    }
 }
