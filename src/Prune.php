@@ -174,14 +174,30 @@ class Prune
    */
   private function processPruneDefinition($object, $pruneDefinition): array
   {
-    $result = [];
+    // Read from cache if possible
+    if ($object instanceof Element && isset($object->id)) {
+        $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
+        $cached = Craft::$app->getCache()->get($cacheKey);
+        if ($cached !== false) {
+            return $cached;
+        }
+    }
 
+    $result = [];
     foreach ($pruneDefinition as $field => $details) {
       // Extract specials from pruneDefinition
       list($details, $specials) = $this->extractSpecials($details);
       $result[$field] = $this->getProperty($object, $field, $details, $specials);
     }
-    
+
+    // --- Caching result with TagDependency if $object is an Element ---
+    if ($object instanceof Element && isset($object->id)) {
+        $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
+        $dependency = new TagDependency(['tags' => ['element::' . $object->id]]);
+        Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
+    }
+    // ---------------------------------------------------------------
+
     return $result;
   }
 
