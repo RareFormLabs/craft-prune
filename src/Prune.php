@@ -452,20 +452,4 @@ class Prune
     }
     return $methodCall;
   }
-
-    /**
-     * Recursively collect all Element IDs from a value (array/object)
-     * @param mixed $value
-     * @param array &$elementIds
-     */
-    private function collectElementIdsRecursive($value, array &$elementIds)
-    {
-        if ($value instanceof Element && isset($value->id)) {
-            $elementIds[] = $value->id;
-        } elseif (is_array($value)) {
-            foreach ($value as $item) {
-                $this->collectElementIdsRecursive($item, $elementIds);
-            }
-        }
-    }
 }
