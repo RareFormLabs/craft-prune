@@ -175,7 +175,9 @@ class Prune
   private function processPruneDefinition($object, $pruneDefinition, array &$relatedElementIds = []): array
   {
         $pruningElement = $object instanceof Element && isset($object->id);
-        $cacheKey = null;
+        $cacheKey = $pruningElement ? 
+            md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition)) : 
+            md5('prune:' . get_class($object) . ':' . serialize($pruneDefinition));
 
         // Read from cache if possible
         if ($pruningElement) {
