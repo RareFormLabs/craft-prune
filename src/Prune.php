@@ -149,7 +149,7 @@ class Prune
     $cacheKey = md5(serialize([$elementQuery, $pruneDefinition]));
 
     $cachedResult = Craft::$app->getCache()->get($cacheKey) ?: null;
-    if ($cachedResult) {
+    if ($cachedResult !== null) {
       return $cachedResult;
     }
 
