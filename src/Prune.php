@@ -146,10 +146,14 @@ class Prune
     // Apply any special directives to the query before fetching results
     $elementQuery = $this->applySpecials($elementQuery, $specials);
 
-    $cacheKey = md5(serialize([$elementQuery, $pruneDefinition]));
+    $cacheKey = md5(json_encode([
+        'queryClass' => get_class($elementQuery),
+        'queryParams' => $elementQuery->params ?? [],
+        'pruneDef'    => $pruneDefinition,
+    ]));
 
-    $cachedResult = Craft::$app->getCache()->get($cacheKey) ?: null;
-    if ($cachedResult !== null) {
+    $cachedResult = Craft::$app->getCache()->get($cacheKey);
+    if ($cachedResult !== false) {
       return $cachedResult;
     }
 
@@ -158,8 +162,8 @@ class Prune
       $result[] = $this->processPruneDefinition($element, $pruneDefinition);
     }
 
-    $dependency = new TagDependency();
-    $dependency->tags[] = 'pruneData';
+    $elementIds = array_map(fn($e) => 'element::'.$e->id, $elementQuery->all());
+    $dependency  = new TagDependency(['tags' => $elementIds]);
     Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
 
     return $result;
@@ -182,7 +186,6 @@ class Prune
         // Read from cache if possible
         if ($pruningElement) {
             try {
-                $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
                 $cached = Craft::$app->getCache()->get($cacheKey);
                 if ($cached !== false) {
                     return $cached;
@@ -212,7 +215,7 @@ class Prune
               Craft::error('Cache write failed: ' . $e->getMessage(), __METHOD__);
           }
         } else {
-            // If not an Element, just store the result without caching
+            // If not an Element, just cache the result without dependencies
             Craft::$app->getCache()->set($cacheKey, $result);
         }
         // ---------------------------------------------------------------
