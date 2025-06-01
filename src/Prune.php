@@ -176,6 +176,7 @@ class Prune
   {
         $pruningElement = $object instanceof Element && isset($object->id);
         $cacheKey = null;
+
         // Read from cache if possible
         if ($pruningElement) {
             try {
@@ -198,11 +199,19 @@ class Prune
         }
 
         // --- Caching result with TagDependency if $object is an Element ---
-            $elementIds = array_merge([$object->id], $relatedElementIds);
-            $tags = array_map(function($id) { return 'element::' . $id; }, array_unique($elementIds));
-            $dependency = new TagDependency(['tags' => $tags]);
-            Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
         if ($pruningElement) {
+          try {
+              $elementIds = array_merge([$object->id], $relatedElementIds);
+              $tags = array_map(function($id) { return 'element::' . $id; }, array_unique($elementIds));
+              $dependency = new TagDependency(['tags' => $tags]);
+              Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
+          } catch (\Exception $e) {
+              // Log cache write error but don't fail the operation
+              Craft::error('Cache write failed: ' . $e->getMessage(), __METHOD__);
+          }
+        } else {
+            // If not an Element, just store the result without caching
+            Craft::$app->getCache()->set($cacheKey, $result);
         }
         // ---------------------------------------------------------------
 
