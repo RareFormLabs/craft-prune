@@ -176,10 +176,15 @@ class Prune
   {
         // Read from cache if possible
         if ($object instanceof Element && isset($object->id)) {
-            $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
-            $cached = Craft::$app->getCache()->get($cacheKey);
-            if ($cached !== false) {
-                return $cached;
+            try {
+                $cacheKey = md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition));
+                $cached = Craft::$app->getCache()->get($cacheKey);
+                if ($cached !== false) {
+                    return $cached;
+                }
+            } catch (\Exception $e) {
+                // Log cache read error and continue with normal processing
+                Craft::error('Cache read failed: ' . $e->getMessage(), __METHOD__);
             }
         }
 
