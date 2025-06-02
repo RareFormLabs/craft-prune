@@ -181,8 +181,8 @@ class Prune
   {
         $pruningElement = $object instanceof Element && isset($object->id);
         $cacheKey = $pruningElement ? 
-            md5('prune:' . get_class($object) . ':' . $object->id . ':' . serialize($pruneDefinition)) : 
-            md5('prune:' . get_class($object) . ':' . serialize($pruneDefinition));
+            md5('prune:' . get_class($object) . ':' . $object->id . ':' . json_encode($pruneDefinition)) : 
+            md5('prune:' . get_class($object) . ':' . json_encode($pruneDefinition));
 
         // Read from cache if possible
         if ($pruningElement) {
