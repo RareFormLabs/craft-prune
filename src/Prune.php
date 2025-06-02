@@ -157,12 +157,13 @@ class Prune
       return $cachedResult;
     }
 
+    $elements = $elementQuery->all();
     $result = [];
-    foreach ($elementQuery->all() as $element) {
+    foreach ($elements as $element) {
       $result[] = $this->processPruneDefinition($element, $pruneDefinition);
     }
 
-    $elementIds = array_map(fn($e) => 'element::'.$e->id, $elementQuery->all());
+    $elementIds = array_map(fn($e) => 'element::'.$e->id, $elements);
     $dependency  = new TagDependency(['tags' => $elementIds]);
     Craft::$app->getCache()->set($cacheKey, $result, null, $dependency);
 
