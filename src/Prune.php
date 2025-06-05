@@ -198,6 +198,12 @@ class Prune
         }
 
         $result = [];
+
+        // Handle non-iterable prune definitions
+        if (!is_array($pruneDefinition) && !is_object($pruneDefinition)) {
+            // If truthy, return the full object; if falsy, return empty array
+            return $pruneDefinition ? $this->serializeObject($object) : [];
+        }
         foreach ($pruneDefinition as $field => $details) {
             // Extract specials from pruneDefinition
             list($details, $specials) = $this->extractSpecials($details);
