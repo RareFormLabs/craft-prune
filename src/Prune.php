@@ -148,7 +148,7 @@ class Prune
 
     $cacheKey = md5(json_encode([
         'queryClass' => get_class($elementQuery),
-        'queryParams' => $elementQuery->params ?? [],
+        'queryParams' => $elementQuery->getCriteria() ?? [],
         'pruneDef'    => $pruneDefinition,
     ]));
 
