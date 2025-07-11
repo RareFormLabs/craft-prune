@@ -259,22 +259,37 @@ class Prune
     }
 
     if (is_array($fieldValue)) {
-      $isArrayOfElements = !empty($fieldValue);
-      foreach ($fieldValue as $item) {
-        if (!($item instanceof Element)) {
-          $isArrayOfElements = false;
-          break;
-        }
-      }
-      if ($isArrayOfElements) {
-        // Add all element IDs to relatedElementIds
+      if (!empty($fieldValue)) {
+        $isArrayOfElements = true;
         foreach ($fieldValue as $el) {
-          if ($el instanceof Element && isset($el->id)) {
+          if (!($el instanceof Element)) {
+            $isArrayOfElements = false;
+            break;
+          }
+          if (isset($el->id)) {
             $relatedElementIds[] = $el->id;
           }
         }
-        return $this->processElementArray($fieldValue, $definitionValue);
+        if ($isArrayOfElements) {
+          return $this->processElementArray($fieldValue, $definitionValue);
+        }
       }
+
+      if (!empty($fieldValue)) {
+        $result = [];
+        foreach ($fieldValue as $key => $item) {
+          if (!is_object($item)) {
+            // If any item is not an object, do not process as array of objects
+            $result = null;
+            break;
+          }
+          $result[$key] = $this->pruneObject($item, $definitionValue);
+        }
+        if ($result !== null) {
+          return $result;
+        }
+      }
+
       return $fieldValue;
     }
 
