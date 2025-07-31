@@ -209,7 +209,7 @@ class Prune
             // Handle dot notation for both associative and non-associative keys
             if (is_string($field) && strpos($field, '.') !== false) {
                 $path = explode('.', $field);
-                $value = $this->traverseDotPath($object, $details);
+                $value = $this->traverseDotPath($object, $field);
                 $lastSegment = array_slice($path, -1)[0];
                 if ((is_array($details) || is_object($details)) && $value !== null) {
                     $result[$lastSegment] = $this->processPruneDefinition($value, $details, $relatedElementIds);
