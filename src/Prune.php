@@ -205,6 +205,45 @@ class Prune
             return $pruneDefinition ? $this->serializeObject($object) : [];
         }
         foreach ($pruneDefinition as $field => $details) {
+            // Handle dot notation for both associative and non-associative keys
+            if (is_string($field) && strpos($field, '.') !== false) {
+                $path = explode('.', $field);
+                $value = $object;
+                foreach ($path as $segment) {
+                    if (is_object($value) && isset($value->$segment)) {
+                        $value = $value->$segment;
+                    } elseif (is_array($value) && isset($value[$segment])) {
+                        $value = $value[$segment];
+                    } else {
+                        $value = null;
+                        break;
+                    }
+                }
+                // If the details is an array/object, recursively prune the value
+                if ((is_array($details) || is_object($details)) && $value !== null) {
+                    $result[end($path)] = $this->processPruneDefinition($value, $details, $relatedElementIds);
+                } else {
+                    $result[end($path)] = $value;
+                }
+                continue;
+            }
+            // Support dot notation for non-associative array values (e.g., ['options.elementIds'])
+            if (is_int($field) && is_string($details) && strpos($details, '.') !== false) {
+                $path = explode('.', $details);
+                $value = $object;
+                foreach ($path as $segment) {
+                    if (is_object($value) && isset($value->$segment)) {
+                        $value = $value->$segment;
+                    } elseif (is_array($value) && isset($value[$segment])) {
+                        $value = $value[$segment];
+                    } else {
+                        $value = null;
+                        break;
+                    }
+                }
+                $result[end($path)] = $value;
+                continue;
+            }
             // Extract specials from pruneDefinition
             list($details, $specials) = $this->extractSpecials($details);
             $result[$field] = $this->getProperty($object, $field, $details, $specials, $relatedElementIds);
