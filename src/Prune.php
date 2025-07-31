@@ -220,10 +220,11 @@ class Prune
                     }
                 }
                 // If the details is an array/object, recursively prune the value
+                $lastSegment = array_slice($path, -1)[0];
                 if ((is_array($details) || is_object($details)) && $value !== null) {
-                    $result[end($path)] = $this->processPruneDefinition($value, $details, $relatedElementIds);
+                    $result[$lastSegment] = $this->processPruneDefinition($value, $details, $relatedElementIds);
                 } else {
-                    $result[end($path)] = $value;
+                    $result[$lastSegment] = $value;
                 }
                 continue;
             }
@@ -241,7 +242,8 @@ class Prune
                         break;
                     }
                 }
-                $result[end($path)] = $value;
+                $lastSegment = array_slice($path, -1)[0];
+                $result[$lastSegment] = $value;
                 continue;
             }
             // Extract specials from pruneDefinition
