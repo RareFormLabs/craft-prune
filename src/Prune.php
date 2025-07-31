@@ -208,18 +208,7 @@ class Prune
             // Handle dot notation for both associative and non-associative keys
             if (is_string($field) && strpos($field, '.') !== false) {
                 $path = explode('.', $field);
-                $value = $object;
-                foreach ($path as $segment) {
-                    if (is_object($value) && isset($value->$segment)) {
-                        $value = $value->$segment;
-                    } elseif (is_array($value) && isset($value[$segment])) {
-                        $value = $value[$segment];
-                    } else {
-                        $value = null;
-                        break;
-                    }
-                }
-                // If the details is an array/object, recursively prune the value
+                $value = $this->traverseDotPath($object, $details);
                 $lastSegment = array_slice($path, -1)[0];
                 if ((is_array($details) || is_object($details)) && $value !== null) {
                     $result[$lastSegment] = $this->processPruneDefinition($value, $details, $relatedElementIds);
@@ -231,17 +220,7 @@ class Prune
             // Support dot notation for non-associative array values (e.g., ['options.elementIds'])
             if (is_int($field) && is_string($details) && strpos($details, '.') !== false) {
                 $path = explode('.', $details);
-                $value = $object;
-                foreach ($path as $segment) {
-                    if (is_object($value) && isset($value->$segment)) {
-                        $value = $value->$segment;
-                    } elseif (is_array($value) && isset($value[$segment])) {
-                        $value = $value[$segment];
-                    } else {
-                        $value = null;
-                        break;
-                    }
-                }
+                $value = $this->traverseDotPath($object, $details);
                 $lastSegment = array_slice($path, -1)[0];
                 $result[$lastSegment] = $value;
                 continue;
@@ -269,6 +248,29 @@ class Prune
         // ---------------------------------------------------------------
 
         return $result;
+    }
+
+    /**
+     * Traverses a dot-notated path on an object/array
+     * 
+     * @param mixed $object Starting object/array
+     * @param string $path Dot-notated path (e.g., "author.email")
+     * @return mixed The value at the path, or null if not found
+     */
+    private function traverseDotPath($object, string $path)
+    {
+        $segments = explode('.', $path);
+        $value = $object;
+        foreach ($segments as $segment) {
+            if (is_object($value) && isset($value->$segment)) {
+                $value = $value->$segment;
+            } elseif (is_array($value) && isset($value[$segment])) {
+                $value = $value[$segment];
+            } else {
+                return null;
+            }
+        }
+        return $value;
     }
 
   /**
