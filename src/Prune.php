@@ -108,6 +108,11 @@ class Prune
             return ['error' => '$object is not an object'];
         }
 
+        // Normalize field lists so direct callers get the same selection as pruneData
+        if (is_array($pruneDefinition) && !empty($pruneDefinition)) {
+            $pruneDefinition = $this->normalizePruneDefinition($pruneDefinition);
+        }
+
         // Extract specials from pruneDefinition
         list($pruneDefinition, $specials) = $this->extractSpecials($pruneDefinition);
 
@@ -379,7 +384,9 @@ class Prune
      * Prunes a plain array according to the definition
      *
      * An associative array keeps only the keys the definition names (a key the
-     * array lacks comes back as null, as a missing property does). A list has the
+     * array lacks comes back as null, as a missing property does); a dotted key
+     * is followed as a path and returned under its last segment, as on objects.
+     * A list, or an array holding only objects under any keys, has the
      * definition applied to each of its items. A definition of `true` keeps the
      * array whole.
      *
@@ -395,16 +402,48 @@ class Prune
 
         list($definition) = $this->extractSpecials($definition);
 
-        if (array_is_list($array)) {
+        // A collection: a list, or objects under string or non-contiguous keys.
+        // Each item is pruned and the keys are kept.
+        if (array_is_list($array) || $this->allItemsAreObjects($array)) {
             return array_map(fn($item) => $this->pruneValue($item, $definition), $array);
         }
 
+        // A single record: keep only the keys the definition names
         $result = [];
         foreach ($definition as $key => $details) {
-            $result[$key] = $details == false ? null : $this->pruneValue($array[$key] ?? null, $details);
+            $outputKey = $key;
+            if (is_string($key) && strpos($key, '.') !== false && !array_key_exists($key, $array)) {
+                // A dotted key is a path into the record, returned under its last segment
+                $value = $this->traverseDotPath($array, $key);
+                $outputKey = array_slice(explode('.', $key), -1)[0];
+            } else {
+                $value = $array[$key] ?? null;
+            }
+            $result[$outputKey] = $details == false ? null : $this->pruneValue($value, $details);
         }
 
         return $result;
+    }
+
+    /**
+     * Checks whether every item of a non-empty array is an object
+     *
+     * @param array $array Array to check
+     * @return bool True if the array holds only objects
+     */
+    private function allItemsAreObjects(array $array): bool
+    {
+        if (empty($array)) {
+            return false;
+        }
+
+        foreach ($array as $item) {
+            if (!is_object($item)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
