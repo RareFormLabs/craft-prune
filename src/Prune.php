@@ -397,7 +397,10 @@ class Prune
     private function pruneArray(array $array, $definition): array
     {
         if (!is_array($definition)) {
-            return $array;
+            // Kept whole, but objects still go through their own serialization
+            return $this->allItemsAreObjects($array)
+                ? array_map(fn($item) => $this->pruneObject($item, $definition), $array)
+                : $array;
         }
 
         list($definition) = $this->extractSpecials($definition);
