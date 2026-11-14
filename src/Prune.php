@@ -17,11 +17,19 @@ use yii\caching\TagDependency;
  * - Object syntax: {title: true, body: true}
  * - Nested relations: {author: ["username", "email"]}
  * - Deep nesting: {author: {username: true, profile: {bio: true}}}
+ * - Plain arrays (JSON and Table field values): {settings: {value: {theme: true}}}
  * - Special directives with $ prefix: {$limit: 10}
  * - Matrix block types with _ prefix: {_body: {body: true}}
  */
 class Prune
 {
+    /**
+     * Part of every cache key. Raise it whenever a change makes the same data and
+     * definition prune differently, so results cached by an older version are never
+     * served. v2: plain arrays are narrowed by their definition.
+     */
+    private const CACHE_VERSION = 'v2';
+
     /**
      * Prunes data according to the provided definition
      * 
@@ -100,6 +108,11 @@ class Prune
             return ['error' => '$object is not an object'];
         }
 
+        // Normalize field lists so direct callers get the same selection as pruneData
+        if (is_array($pruneDefinition) && !empty($pruneDefinition)) {
+            $pruneDefinition = $this->normalizePruneDefinition($pruneDefinition);
+        }
+
         // Extract specials from pruneDefinition
         list($pruneDefinition, $specials) = $this->extractSpecials($pruneDefinition);
 
@@ -148,6 +161,7 @@ class Prune
         $elementQuery = $this->applySpecials($elementQuery, $specials);
 
         $cacheKey = md5(json_encode([
+            'version' => self::CACHE_VERSION,
             'queryClass' => get_class($elementQuery),
             'queryParams' => $elementQuery->getCriteria() ?? [],
             'pruneDef' => $pruneDefinition,
@@ -182,8 +196,8 @@ class Prune
     {
         $pruningElement = $object instanceof Element && isset($object->id);
         $cacheKey = $pruningElement ?
-            md5('prune:' . get_class($object) . ':' . $object->id . ':' . json_encode($pruneDefinition)) :
-            md5('prune:' . get_class($object) . ':' . json_encode($pruneDefinition));
+            md5('prune:' . self::CACHE_VERSION . ':' . get_class($object) . ':' . $object->id . ':' . json_encode($pruneDefinition)) :
+            md5('prune:' . self::CACHE_VERSION . ':' . get_class($object) . ':' . json_encode($pruneDefinition));
 
         // Read from cache if possible
         if ($pruningElement) {
@@ -212,7 +226,9 @@ class Prune
                 $value = $this->traverseDotPath($object, $field);
                 $lastSegment = array_slice($path, -1)[0];
                 if ((is_array($details) || is_object($details)) && $value !== null) {
-                    $result[$lastSegment] = $this->processPruneDefinition($value, $details, $relatedElementIds);
+                    $result[$lastSegment] = is_object($value)
+                        ? $this->processPruneDefinition($value, $details, $relatedElementIds)
+                        : $this->pruneValue($value, $details);
                 } else {
                     $result[$lastSegment] = $value;
                 }
@@ -323,22 +339,9 @@ class Prune
                 }
             }
 
-            if (!empty($fieldValue)) {
-                $result = [];
-                foreach ($fieldValue as $key => $item) {
-                    if (!is_object($item)) {
-                        // If any item is not an object, do not process as array of objects
-                        $result = null;
-                        break;
-                    }
-                    $result[$key] = $this->pruneObject($item, $definitionValue);
-                }
-                if ($result !== null) {
-                    return $result;
-                }
-            }
-
-            return $fieldValue;
+            // A plain array (a JSON or Table field's value, for example) is narrowed
+            // by the definition like anything else
+            return $this->pruneArray($fieldValue, $definitionValue);
         }
 
         if ($fieldValue instanceof Element) {
@@ -375,6 +378,95 @@ class Prune
         }
 
         return $fieldValue;
+    }
+
+    /**
+     * Prunes a plain array according to the definition
+     *
+     * An associative array keeps only the keys the definition names (a key the
+     * array lacks comes back as null, as a missing property does); a dotted key
+     * is followed as a path and returned under its last segment, as on objects.
+     * A list, or an array holding only objects under any keys, has the
+     * definition applied to each of its items. A definition of `true` keeps the
+     * array whole.
+     *
+     * @param array $array Array to prune
+     * @param mixed $definition Definition determining what to keep
+     * @return array Pruned array
+     */
+    private function pruneArray(array $array, $definition): array
+    {
+        if (!is_array($definition)) {
+            // Kept whole, but objects still go through their own serialization
+            return $this->allItemsAreObjects($array)
+                ? array_map(fn($item) => $this->pruneObject($item, $definition), $array)
+                : $array;
+        }
+
+        list($definition) = $this->extractSpecials($definition);
+
+        // A collection: a list, or objects under string or non-contiguous keys.
+        // Each item is pruned and the keys are kept.
+        if (array_is_list($array) || $this->allItemsAreObjects($array)) {
+            return array_map(fn($item) => $this->pruneValue($item, $definition), $array);
+        }
+
+        // A single record: keep only the keys the definition names
+        $result = [];
+        foreach ($definition as $key => $details) {
+            $outputKey = $key;
+            if (is_string($key) && strpos($key, '.') !== false && !array_key_exists($key, $array)) {
+                // A dotted key is a path into the record, returned under its last segment
+                $value = $this->traverseDotPath($array, $key);
+                $outputKey = array_slice(explode('.', $key), -1)[0];
+            } else {
+                $value = $array[$key] ?? null;
+            }
+            $result[$outputKey] = $details == false ? null : $this->pruneValue($value, $details);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Checks whether every item of a non-empty array is an object
+     *
+     * @param array $array Array to check
+     * @return bool True if the array holds only objects
+     */
+    private function allItemsAreObjects(array $array): bool
+    {
+        if (empty($array)) {
+            return false;
+        }
+
+        foreach ($array as $item) {
+            if (!is_object($item)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Prunes a value found inside a plain array
+     *
+     * @param mixed $value Value to prune
+     * @param mixed $definition Definition determining what to keep
+     * @return mixed Pruned value
+     */
+    private function pruneValue($value, $definition)
+    {
+        if (is_array($value)) {
+            return $this->pruneArray($value, $definition);
+        }
+
+        if (is_object($value)) {
+            return $this->pruneObject($value, $definition);
+        }
+
+        return $value;
     }
 
     /**
